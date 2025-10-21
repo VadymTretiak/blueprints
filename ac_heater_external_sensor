@@ -1,0 +1,97 @@
+blueprint:
+  name: AC Heater Control (External Temperature Sensor)
+  description: >
+    Controls an AC (or switch) to heat a room based on an external temperature sensor.
+    Turns AC off when temperature reaches the target, and back on when it drops
+    below (target - hysteresis).
+  domain: automation
+  input:
+    temperature_sensor:
+      name: Temperature Sensor
+      description: The external temperature sensor to monitor.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+
+    ac_device:
+      name: AC / Heater Device
+      description: The climate or switch entity controlling the AC or heater.
+      selector:
+        entity:
+          domain:
+            - switch
+            - climate
+
+    target_temp:
+      name: Target Temperature
+      description: The desired room temperature (°C).
+      default: 22
+      selector:
+        number:
+          min: 10
+          max: 35
+          step: 0.5
+          unit_of_measurement: "°C"
+
+    hysteresis:
+      name: Temperature Hysteresis
+      description: >
+        Difference before AC turns back on after reaching the target.
+        Example: 0.5 means AC turns on again at (target - 0.5 °C).
+      default: 0.5
+      selector:
+        number:
+          min: 0.1
+          max: 5
+          step: 0.1
+          unit_of_measurement: "°C"
+
+mode: single
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input temperature_sensor
+
+variables:
+  sensor: !input temperature_sensor
+  ac: !input ac_device
+  target: !input target_temp
+  hysteresis: !input hysteresis
+  temp: "{{ states(sensor) | float(0) }}"
+
+condition: []
+
+action:
+  - choose:
+      # 🔥 Turn ON when below (target - hysteresis)
+      - conditions:
+          - condition: template
+            value_template: "{{ temp < (target - hysteresis) }}"
+        sequence:
+          - service: >
+              {% if ac.startswith('climate.') %}
+                climate.set_hvac_mode
+              {% else %}
+                switch.turn_on
+              {% endif %}
+            data:
+              entity_id: !input ac_device
+              {% if ac.startswith('climate.') %}
+              hvac_mode: heat
+              {% endif %}
+
+      # 💤 Turn OFF when >= target
+      - conditions:
+          - condition: template
+            value_template: "{{ temp >= target }}"
+        sequence:
+          - service: >
+              {% if ac.startswith('climate.') %}
+                climate.turn_off
+              {% else %}
+                switch.turn_off
+              {% endif %}
+            data:
+              entity_id: !input ac_device
